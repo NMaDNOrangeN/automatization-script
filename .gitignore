@@ -1,2 +1,4 @@
-tools.json
-reports
+tools.cfg
+launch_log.csv
+root.cfg
+report.txt
