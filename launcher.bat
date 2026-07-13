@@ -1,22 +1,6 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal EnableDelayedExpansion
 chcp 65001 >nul
-
-rem =====================================================
-rem   Лаунчер сборки программ
-rem   Файлы, используемые скриптом (лежат рядом с .bat):
-rem     tools.cfg      - список инструментов (Название=Путь)
-rem                      путь может быть абсолютным (C:\...)
-rem                      или относительным - тогда он
-rem                      достраивается от корневого PATH (root.cfg)
-rem     root.cfg       - корневой путь (PATH) к папке с программами
-rem     launch_log.csv - лог всех запусков (сырые данные)
-rem     report.txt     - формируемый отчёт (аккуратная таблица)
-rem
-rem   Скрипт умеет вызывать сам себя в служебном режиме
-rem   "__worker__", чтобы запускать инструменты параллельно
-rem   (см. пункт меню 2 -> режим "Параллельно").
-rem =====================================================
 
 set "CONFIG=%~dp0tools.cfg"
 set "ROOTFILE=%~dp0root.cfg"
@@ -27,11 +11,10 @@ set "maxcount=0"
 
 if not exist "%CONFIG%" type nul > "%CONFIG%"
 if not exist "%ROOTFILE%" type nul > "%ROOTFILE%"
-if not exist "%LOG%" echo Дата,Время,Инструмент,КодЗавершения> "%LOG%"
+if not exist "%LOG%" echo Date;Time;Tool;ExitCode> "%LOG%"
 
 call :LOAD_ROOT
 
-rem --- служебный режим фонового запуска одного инструмента ---
 if /I "%~1"=="__worker__" goto WORKER_MODE
 
 :MAIN_MENU
@@ -62,10 +45,6 @@ echo Некорректный выбор.
 pause
 goto MAIN_MENU
 
-rem -----------------------------------------------------
-rem  Подпрограмма: загружает корневой PATH из root.cfg
-rem  в переменную ROOT (не задана, если файл пуст).
-rem -----------------------------------------------------
 :LOAD_ROOT
 set "ROOT="
 if exist "%ROOTFILE%" (
@@ -78,41 +57,50 @@ if defined ROOT (
 )
 goto :eof
 
-rem -----------------------------------------------------
-rem  Подпрограмма: получает на вход путь из tools.cfg (%1)
-rem  и возвращает в переменной "resolved" итоговый путь.
-rem -----------------------------------------------------
 :RESOLVE_PATH
 set "rp=%~1"
-set "resolved=%rp%"
-echo %rp%|findstr /r "^[A-Za-z]:\\" >nul
-if not errorlevel 1 goto :eof
-echo %rp%|findstr /r "^\\\\" >nul
-if not errorlevel 1 goto :eof
-if defined ROOT set "resolved=%ROOT%\%rp%"
+if "%rp%"=="" (
+    set "resolved="
+    goto :eof
+)
+if "%rp:~1,1%"==":" (
+    set "resolved=%rp%"
+    goto :eof
+)
+if "%rp:~0,2%"=="\\" (
+    set "resolved=%rp%"
+    goto :eof
+)
+if defined ROOT (
+    set "resolved=%ROOT%\%rp%"
+) else (
+    set "resolved=%rp%"
+)
 goto :eof
 
-rem -----------------------------------------------------
-rem  Подпрограмма: безопасная (с блокировкой) запись строки
-rem  в лог, чтобы при параллельном запуске из нескольких
-rem  процессов строки не перемешивались/не портились.
-rem  %1 = готовая CSV-строка (без запятой в конце).
-rem -----------------------------------------------------
 :LOG_APPEND
-:LOG_APPEND_RETRY
+set "loglock_tries=0"
+
+:LOG_RETRY
 mkdir "%LOGLOCK%" 2>nul
+
 if errorlevel 1 (
-    ping -n 1 -w 150 127.0.0.1 >nul
-    goto LOG_APPEND_RETRY
+    set /a loglock_tries+=1
+
+    if !loglock_tries! geq 50 (
+        echo [Ошибка] Не удалось получить доступ к логу.
+        goto :eof
+    )
+
+    timeout /t 1 >nul
+    goto LOG_RETRY
 )
-echo %~1>> "%LOG%"
+
+>> "%LOG%" echo %~1
+
 rmdir "%LOGLOCK%" 2>nul
 goto :eof
 
-rem -----------------------------------------------------
-rem  Подпрограмма: дополняет строку %1 пробелами справа
-rem  до ширины %2, кладёт результат в переменную "padded".
-rem -----------------------------------------------------
 :PAD
 set "padval=%~1"
 set "padwidth=%~2"
@@ -120,12 +108,6 @@ set "padval=!padval!                                                            
 set "padded=!padval:~0,%padwidth%!"
 goto :eof
 
-rem -----------------------------------------------------
-rem  Подпрограмма: читает CONFIG и выводит пронумерованный
-rem  список. Заполняет name1..nameN / path1..pathN (пути -
-rem  как записаны в tools.cfg, ещё не "разрешённые") и count.
-rem  Перед заполнением чистит "хвосты" от предыдущего вызова.
-rem -----------------------------------------------------
 :LIST_TOOLS
 for /l %%i in (1,1,!maxcount!) do (
     set "name%%i="
@@ -144,26 +126,16 @@ if !count! GTR !maxcount! set "maxcount=!count!"
 if "!count!"=="0" echo   (список пуст)
 goto :eof
 
-rem -----------------------------------------------------
-rem  Подпрограмма: то же самое, но рядом с каждым пунктом
-rem  показывает итоговый (разрешённый) путь к exe.
-rem -----------------------------------------------------
 :LIST_TOOLS_FULL
 call :LIST_TOOLS >nul
 for /l %%i in (1,1,!count!) do (
     call :RESOLVE_PATH "!path%%i!"
-    echo !%%i!. !name%%i!
+    echo %%i. !name%%i!
     echo      -^> !resolved!
 )
 if "!count!"=="0" echo   (список пуст)
 goto :eof
 
-rem -----------------------------------------------------
-rem  Подпрограмма: запуск одного инструмента по индексу %1,
-rem  СИНХРОННО (ждём завершения, потом возвращаемся).
-rem  Используется в пункте 1 и в последовательном режиме
-rem  пункта 2.
-rem -----------------------------------------------------
 :LAUNCH_TOOL
 set "idx=%~1"
 if not defined idx goto :eof
@@ -186,26 +158,19 @@ if not exist "!tpath!" (
     echo [Ошибка] Файл не найден: !tpath!
     set "logtime=%time%"
     set "logtime=!logtime:,=.!"
-    call :LOG_APPEND "%date%,!logtime!,!tname!,FILE_NOT_FOUND"
+    call :LOG_APPEND "%date%;!logtime!;!tname!;FILE_NOT_FOUND"
     goto :eof
 )
 
-echo Запуск: !tname! ^(!tpath!^) ...
-start "" /wait "!tpath!"
+echo Запуск: !tname! (!tpath!) ...
+"%tpath%"
 set "exitcode=!errorlevel!"
 set "logtime=%time%"
 set "logtime=!logtime:,=.!"
-call :LOG_APPEND "%date%,!logtime!,!tname!,!exitcode!"
+call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!"
 echo   -^> "!tname!" завершён с кодом !exitcode!.
 goto :eof
 
-rem -----------------------------------------------------
-rem  Подпрограмма: запуск одного инструмента по индексу %1,
-rem  АСИНХРОННО - поднимает отдельный процесс (сам себя же
-rem  в режиме __worker__), который дождётся завершения
-rem  именно этого инструмента и сам запишет строку в лог.
-rem  Используется в параллельном режиме пункта 2.
-rem -----------------------------------------------------
 :LAUNCH_MANY_ASYNC
 set "aidx=%~1"
 if not defined aidx goto :eof
@@ -225,14 +190,8 @@ echo Запуск в фоне: !aname!
 start "!aname!" cmd /c call "%~f0" __worker__ "!aname!"
 goto :eof
 
-rem -----------------------------------------------------
-rem  СЛУЖЕБНЫЙ РЕЖИМ (worker): %2 = название инструмента.
-rem  Процесс сам ищет путь в tools.cfg по имени, запускает
-rem  программу через start /wait, дожидается её и пишет
-rem  результат в лог (с блокировкой через :LOG_APPEND).
-rem  Окно закрывается автоматически через пару секунд.
-rem -----------------------------------------------------
 :WORKER_MODE
+setlocal EnableDelayedExpansion
 set "wname=%~2"
 set "wpath="
 for /f "usebackq eol=; tokens=1,* delims==" %%A in ("%CONFIG%") do (
@@ -246,31 +205,28 @@ if not defined wpath (
     exit /b 1
 )
 
-call :RESOLVE_PATH "%wpath%"
-set "tpath=%resolved%"
+call :RESOLVE_PATH "!wpath!"
+set "tpath=!resolved!"
 
-if not exist "%tpath%" (
-    echo [Ошибка] Файл не найден: %tpath%
+if not exist "!tpath!" (
+    echo [Ошибка] Файл не найден: !tpath!
     set "logtime=%time%"
     set "logtime=!logtime:,=.!"
-    call :LOG_APPEND "%date%,!logtime!,%wname%,FILE_NOT_FOUND"
+    call :LOG_APPEND "%date%;!logtime!;!wname!;FILE_NOT_FOUND"
     timeout /t 3 >nul
     exit /b 1
 )
 
-echo Запуск: %wname% ^(%tpath%^) ...
-start "" /wait "%tpath%"
-set "exitcode=%errorlevel%"
+echo Запуск: !wname! ^(!tpath!^) ...
+"%tpath%"
+set "exitcode=!errorlevel!"
 set "logtime=%time%"
 set "logtime=!logtime:,=.!"
-call :LOG_APPEND "%date%,!logtime!,%wname%,!exitcode!"
-echo %wname% завершён с кодом %exitcode%.
+call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!"
+echo !wname! завершён с кодом !exitcode!.
 timeout /t 2 >nul
 exit /b 0
 
-rem -----------------------------------------------------
-rem  Пункт 1: запуск одного инструмента
-rem -----------------------------------------------------
 :RUN_ONE
 cls
 echo --- Доступные инструменты ---
@@ -287,10 +243,6 @@ echo.
 pause
 goto MAIN_MENU
 
-rem -----------------------------------------------------
-rem  Пункт 2: массовый запуск нескольких инструментов.
-rem  Можно выбрать последовательный или параллельный режим.
-rem -----------------------------------------------------
 :RUN_MANY
 cls
 echo --- Доступные инструменты ---
@@ -328,12 +280,6 @@ if "%rmode%"=="2" (
 pause
 goto MAIN_MENU
 
-rem -----------------------------------------------------
-rem  Пункт 3: генерация отчёта из уже накопленного лога
-rem  (не запускает ничего, только читает launch_log.csv).
-rem  Отчёт строится как выровненная таблица с фиксированной
-rem  шириной столбцов через подпрограмму :PAD.
-rem -----------------------------------------------------
 :REPORT
 cls
 echo --- Генерация отчёта ---
@@ -346,9 +292,14 @@ if not exist "%LOG%" (
 set total=0
 set ok=0
 set fail=0
-for /f "usebackq skip=1 tokens=1-4 delims=," %%a in ("%LOG%") do (
+for /f "usebackq skip=1 tokens=1-4 delims=;" %%a in ("%LOG%") do (
     set /a total+=1
-    if "%%d"=="0" (set /a ok+=1) else (set /a fail+=1)
+
+    if /I "%%d"=="FILE_NOT_FOUND" (
+        set /a fail+=1
+    ) else (
+        set /a ok+=1
+    )
 )
 
 set "C1=12"
@@ -370,7 +321,7 @@ set "H4=!padded!"
 
 call :PAD "Всего запусков:" 24
 set "L1=!padded!"
-call :PAD "Успешных (код 0):" 24
+call :PAD "Успешных:" 24
 set "L2=!padded!"
 call :PAD "С ошибкой/не найден:" 24
 set "L3=!padded!"
@@ -387,7 +338,7 @@ set "L3=!padded!"
     echo !DIV!
 ) > "%REPORT%"
 
-for /f "usebackq skip=1 tokens=1-4 delims=," %%a in ("%LOG%") do (
+for /f "usebackq skip=1 tokens=1-4 delims=;" %%a in ("%LOG%") do (
     call :PAD "%%a" %C1%
     set "R1=!padded!"
     call :PAD "%%b" %C2%
@@ -405,9 +356,6 @@ echo Отчёт сохранён: %REPORT%
 pause
 goto MAIN_MENU
 
-rem -----------------------------------------------------
-rem  Пункт 4: редактор путей к инструментам
-rem -----------------------------------------------------
 :EDIT_PATHS
 cls
 echo --- Редактор путей к инструментам ---
