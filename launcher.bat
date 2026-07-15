@@ -4,14 +4,19 @@ chcp 65001 >nul
 
 set "CONFIG=%~dp0tools.cfg"
 set "ROOTFILE=%~dp0root.cfg"
-set "LOG=%~dp0launch_log.csv"
-set "REPORT=%~dp0report.txt"
-set "LOGLOCK=%~dp0.log.lock"
+set "REPORTDIR=%~dp0reports"
+set "LOGDIR=%REPORTDIR%\logs"
+set "LOG=%REPORTDIR%\launch_log.csv"
+set "REPORT=%REPORTDIR%\report.txt"
+set "LOGLOCK=%REPORTDIR%\log.lock"
 set "maxcount=0"
 
+
+if not exist "%REPORTDIR%" mkdir "%REPORTDIR%"
+if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 if not exist "%CONFIG%" type nul > "%CONFIG%"
 if not exist "%ROOTFILE%" type nul > "%ROOTFILE%"
-if not exist "%LOG%" echo Date;Time;Tool;ExitCode> "%LOG%"
+if not exist "%LOG%" echo Date;Time;Tool;ExitCode;OutputLog> "%LOG%"
 
 call :LOAD_ROOT
 
@@ -20,28 +25,28 @@ if /I "%~1"=="__worker__" goto WORKER_MODE
 :MAIN_MENU
 cls
 echo ==================================================
-echo            ЛАУНЧЕР СБОРКИ ПРОГРАММ
+echo            BUILD LAUNCHER
 echo ==================================================
 if defined ROOT (
-    echo  Корневой PATH: !ROOT!
+    echo  Root PATH: !ROOT!
 ) else (
-    echo  Корневой PATH: не задан ^(используются абсолютные пути^)
+    echo  Root PATH: not set ^(absolute paths will be used^)
 )
 echo ==================================================
-echo  1. Запустить один инструмент
-echo  2. Массовый запуск инструментов
-echo  3. Сгенерировать отчёт о запусках
-echo  4. Редактор путей к инструментам
-echo  5. Выход
+echo  1. Run one tool
+echo  2. Run multiple tools
+echo  3. Generate run report
+echo  4. Tool paths editor
+echo  5. Exit
 echo ==================================================
-set /p choice="Выберите пункт меню: "
+set /p choice="Select menu item: "
 
 if "%choice%"=="1" goto RUN_ONE
 if "%choice%"=="2" goto RUN_MANY
 if "%choice%"=="3" goto REPORT
 if "%choice%"=="4" goto EDIT_PATHS
 if "%choice%"=="5" goto :EOF
-echo Некорректный выбор.
+echo Invalid selection.
 pause
 goto MAIN_MENU
 
@@ -88,7 +93,7 @@ if errorlevel 1 (
     set /a loglock_tries+=1
 
     if !loglock_tries! geq 50 (
-        echo [Ошибка] Не удалось получить доступ к логу.
+        echo [Error] Could not access the log.
         goto :eof
     )
 
@@ -123,7 +128,7 @@ for /f "usebackq eol=; tokens=1,* delims==" %%A in ("%CONFIG%") do (
     )
 )
 if !count! GTR !maxcount! set "maxcount=!count!"
-if "!count!"=="0" echo   (список пуст)
+if "!count!"=="0" echo   (list empty)
 goto :eof
 
 :LIST_TOOLS_FULL
@@ -133,7 +138,7 @@ for /l %%i in (1,1,!count!) do (
     echo %%i. !name%%i!
     echo      -^> !resolved!
 )
-if "!count!"=="0" echo   (список пуст)
+if "!count!"=="0" echo   (list empty)
 goto :eof
 
 :LAUNCH_TOOL
@@ -142,11 +147,11 @@ if not defined idx goto :eof
 
 echo !idx!|findstr /r "^[1-9][0-9]*$" >nul
 if errorlevel 1 (
-    echo [Ошибка] Номер инструмента должен быть положительным числом: !idx!
+    echo [Error] Tool number must be a positive number: !idx!
     goto :eof
 )
 if !idx! GTR !count! (
-    echo [Ошибка] Неверный номер инструмента: !idx!
+    echo [Error] Invalid tool number: !idx!
     goto :eof
 )
 
@@ -155,20 +160,29 @@ call :RESOLVE_PATH "!path%idx%!"
 set "tpath=!resolved!"
 
 if not exist "!tpath!" (
-    echo [Ошибка] Файл не найден: !tpath!
+    echo [Error] File not found: !tpath!
     set "logtime=%time%"
     set "logtime=!logtime:,=.!"
-    call :LOG_APPEND "%date%;!logtime!;!tname!;FILE_NOT_FOUND"
+    call :LOG_APPEND "%date%;!logtime!;!tname!;FILE_NOT_FOUND;!TOOLLOG!"
     goto :eof
 )
 
-echo Запуск: !tname! (!tpath!) ...
-"%tpath%"
+echo Running: !tname! (!tpath!) ...
+set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+set "stamp=!stamp: =0!"
+set "TOOLLOG=%LOGDIR%\!tname!_!stamp!.log"
+"%tpath%" > "!TOOLLOG!" 2>&1
 set "exitcode=!errorlevel!"
 set "logtime=%time%"
 set "logtime=!logtime:,=.!"
-call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!"
-echo   -^> "!tname!" завершён с кодом !exitcode!.
+for %%F in ("!TOOLLOG!") do set "LOGSIZE=%%~zF"
+if "!LOGSIZE!"=="0" (
+    del "!TOOLLOG!" >nul 2>&1
+    call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!;"
+) else (
+    call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!;!TOOLLOG!"
+)
+echo   -^> "!tname!" finished with exit code !exitcode!.
 goto :eof
 
 :LAUNCH_MANY_ASYNC
@@ -177,31 +191,31 @@ if not defined aidx goto :eof
 
 echo !aidx!|findstr /r "^[1-9][0-9]*$" >nul
 if errorlevel 1 (
-    echo [Ошибка] Номер инструмента должен быть положительным числом: !aidx!
+    echo [Error] Tool number must be a positive number: !aidx!
     goto :eof
 )
 if !aidx! GTR !count! (
-    echo [Ошибка] Неверный номер инструмента: !aidx!
+    echo [Error] Invalid tool number: !aidx!
     goto :eof
 )
 
 set "aname=!name%aidx%!"
-echo Запуск в фоне: !aname!
-start "!aname!" cmd /c call "%~f0" __worker__ "!aname!"
+echo Starting in background: !aname!
+start "" /b cmd /c call "%~f0" __worker__ "!aname!"
 goto :eof
 
 :WORKER_MODE
 setlocal EnableDelayedExpansion
 set "wname=%~2"
 set "wpath="
+
 for /f "usebackq eol=; tokens=1,* delims==" %%A in ("%CONFIG%") do (
     if not "%%A"=="" if not "%%B"=="" (
         if /I "%%A"=="%wname%" set "wpath=%%B"
     )
 )
+
 if not defined wpath (
-    echo [Ошибка] Инструмент "%wname%" не найден в tools.cfg.
-    timeout /t 3 >nul
     exit /b 1
 )
 
@@ -209,35 +223,44 @@ call :RESOLVE_PATH "!wpath!"
 set "tpath=!resolved!"
 
 if not exist "!tpath!" (
-    echo [Ошибка] Файл не найден: !tpath!
     set "logtime=%time%"
     set "logtime=!logtime:,=.!"
-    call :LOG_APPEND "%date%;!logtime!;!wname!;FILE_NOT_FOUND"
-    timeout /t 3 >nul
+    call :LOG_APPEND "%date%;!logtime!;!wname!;FILE_NOT_FOUND;"
     exit /b 1
 )
 
-echo Запуск: !wname! ^(!tpath!^) ...
-"%tpath%"
+set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+set "stamp=!stamp: =0!"
+set "TOOLLOG=%LOGDIR%\!wname!_!stamp!.log"
+
+"%tpath%" > "!TOOLLOG!" 2>&1
+
 set "exitcode=!errorlevel!"
 set "logtime=%time%"
 set "logtime=!logtime:,=.!"
-call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!"
-echo !wname! завершён с кодом !exitcode!.
-timeout /t 2 >nul
+
+for %%F in ("!TOOLLOG!") do set "LOGSIZE=%%~zF"
+
+if "!LOGSIZE!"=="0" (
+    del "!TOOLLOG!" >nul 2>&1
+    call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;"
+) else (
+    call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;!TOOLLOG!"
+)
+
 exit /b 0
 
 :RUN_ONE
 cls
-echo --- Доступные инструменты ---
+echo --- Available tools ---
 call :LIST_TOOLS
 if "!count!"=="0" (
-    echo Добавьте инструменты через пункт 4 главного меню.
+    echo Add tools through menu item 4 in the main menu.
     pause
     goto MAIN_MENU
 )
 echo.
-set /p sel="Номер инструмента для запуска: "
+set /p sel="Tool number to run: "
 call :LAUNCH_TOOL !sel!
 echo.
 pause
@@ -245,46 +268,52 @@ goto MAIN_MENU
 
 :RUN_MANY
 cls
-echo --- Доступные инструменты ---
+echo --- Available tools ---
 call :LIST_TOOLS
 if "!count!"=="0" (
-    echo Добавьте инструменты через пункт 4 главного меню.
+    echo Add tools through menu item 4 in the main menu.
     pause
     goto MAIN_MENU
 )
+
 echo.
-echo Введите номера через запятую, например: 1,3,4
-set /p sels="Номера: "
+echo Enter numbers separated by commas, for example: 1,3,4
+set /p sels="Numbers: "
+
 echo.
-echo Режим запуска:
-echo   1. Последовательно ^(ждать завершения каждого перед следующим^)
-echo   2. Параллельно ^(все сразу, каждый в своём окне^)
-set /p rmode="Выберите режим (1/2): "
+echo Run mode:
+echo   1. Sequentially ^(wait for each to finish before the next^)
+echo   2. In parallel ^(all at once, each in its own window^)
+set /p rmode="Select mode (1/2): "
+
 set "sels=!sels:,= !"
 
 if "%rmode%"=="2" (
     for %%s in (!sels!) do (
         if not "%%~s"=="" call :LAUNCH_MANY_ASYNC %%~s
     )
+
     echo.
-    echo Все выбранные инструменты запущены параллельно, каждый в своём окне.
-    echo Строки в лог будут добавляться по мере завершения каждого из них.
-    echo Сформируйте отчёт ^(пункт 3^) позже, когда все окна закроются.
-) else (
-    for %%s in (!sels!) do (
-        if not "%%~s"=="" call :LAUNCH_TOOL %%~s
-    )
-    echo.
-    echo Массовый запуск завершён.
+    echo All selected tools have been started in parallel.
+    echo Logs and exit codes will be saved automatically.
+    timeout /t 3 >nul
+    goto MAIN_MENU
 )
+
+for %%s in (!sels!) do (
+    if not "%%~s"=="" call :LAUNCH_TOOL %%~s
+)
+
+echo.
+echo Bulk run completed.
 pause
 goto MAIN_MENU
 
 :REPORT
 cls
-echo --- Генерация отчёта ---
+echo --- Generating report ---
 if not exist "%LOG%" (
-    echo Лог отсутствует, отчёт сформировать нельзя.
+    echo The log is missing, so the report cannot be generated.
     pause
     goto MAIN_MENU
 )
@@ -292,7 +321,7 @@ if not exist "%LOG%" (
 set total=0
 set ok=0
 set fail=0
-for /f "usebackq skip=1 tokens=1-4 delims=;" %%a in ("%LOG%") do (
+for /f "usebackq skip=1 tokens=1-5 delims=;" %%a in ("%LOG%") do (
     set /a total+=1
 
     if /I "%%d"=="FILE_NOT_FOUND" (
@@ -306,39 +335,42 @@ set "C1=12"
 set "C2=14"
 set "C3=26"
 set "C4=16"
-set /a TW=C1+C2+C3+C4+9
+set "C5=100"
+set /a TW=C1+C2+C3+C4+C5+4
 set "DASHES=----------------------------------------------------------------------------------------------"
 set "DIV=!DASHES:~0,%TW%!"
 
-call :PAD "Дата" %C1%
+call :PAD "Date" %C1%
 set "H1=!padded!"
-call :PAD "Время" %C2%
+call :PAD "Time" %C2%
 set "H2=!padded!"
-call :PAD "Инструмент" %C3%
+call :PAD "Tool" %C3%
 set "H3=!padded!"
-call :PAD "Код завершения" %C4%
+call :PAD "Exit code" %C4%
 set "H4=!padded!"
+call :PAD "Tool log" %C5%
+set "H5=!padded!"
 
-call :PAD "Всего запусков:" 24
+call :PAD "Total runs:" 24
 set "L1=!padded!"
-call :PAD "Успешных:" 24
+call :PAD "Successful:" 24
 set "L2=!padded!"
-call :PAD "С ошибкой/не найден:" 24
+call :PAD "Failed/not found:" 24
 set "L3=!padded!"
 
 (
-    echo ОТЧЁТ О ЗАПУСКАХ ИНСТРУМЕНТОВ
-    echo Сформирован: %date% %time%
+    echo TOOL RUN REPORT
+    echo Generated: %date% %time%
     echo !DIV!
     echo !L1!!total!
     echo !L2!!ok!
     echo !L3!!fail!
     echo !DIV!
-    echo !H1! ^| !H2! ^| !H3! ^| !H4!
+    echo !H1! ^| !H2! ^| !H3! ^| !H4! ^| !H5!
     echo !DIV!
 ) > "%REPORT%"
 
-for /f "usebackq skip=1 tokens=1-4 delims=;" %%a in ("%LOG%") do (
+for /f "usebackq skip=1 tokens=1-5 delims=;" %%a in ("%LOG%") do (
     call :PAD "%%a" %C1%
     set "R1=!padded!"
     call :PAD "%%b" %C2%
@@ -347,31 +379,55 @@ for /f "usebackq skip=1 tokens=1-4 delims=;" %%a in ("%LOG%") do (
     set "R3=!padded!"
     call :PAD "%%d" %C4%
     set "R4=!padded!"
-    echo !R1! ^| !R2! ^| !R3! ^| !R4!>> "%REPORT%"
+    call :PAD "%%e" %C5%
+    set "R5=!padded!"
+    echo !R1! ^| !R2! ^| !R3! ^| !R4! ^| !R5!>> "%REPORT%"
 )
 
 echo !DIV!>> "%REPORT%"
 
-echo Отчёт сохранён: %REPORT%
+echo.>> "%REPORT%"
+echo =====================================================>> "%REPORT%"
+echo TOOL OUTPUT LOGS>> "%REPORT%"
+echo =====================================================>> "%REPORT%"
+
+for /f "usebackq skip=1 tokens=1-5 delims=;" %%a in ("%LOG%") do (
+    echo.>> "%REPORT%"
+    echo Tool: %%c>> "%REPORT%"
+    echo Exit code: %%d>> "%REPORT%"
+    echo Log file: %%e>> "%REPORT%"
+    echo -------------------------------------------------->> "%REPORT%"
+
+    if exist "%%e" (
+        type "%%e" >> "%REPORT%"
+    ) else (
+        echo [No console output or log file not found]>> "%REPORT%"
+    )
+
+    echo.>> "%REPORT%"
+    echo -------------------------------------------------->> "%REPORT%"
+)
+
+echo Report saved: %REPORT%
 pause
 goto MAIN_MENU
 
 :EDIT_PATHS
 cls
-echo --- Редактор путей к инструментам ---
+echo --- Tool paths editor ---
 if defined ROOT (
-    echo  Текущий корневой PATH: !ROOT!
+    echo  Current root PATH: !ROOT!
 ) else (
-    echo  Корневой PATH не задан.
+    echo  Root PATH is not set.
 )
 echo.
-echo  1. Показать список ^(с разрешёнными путями^)
-echo  2. Добавить новый инструмент
-echo  3. Изменить путь существующего
-echo  4. Удалить инструмент
-echo  5. Задать/изменить корневой PATH
-echo  6. Назад в главное меню
-set /p ech="Выберите действие: "
+echo  1. Show list ^(with resolved paths^)
+echo  2. Add a new tool
+echo  3. Change an existing path
+echo  4. Delete a tool
+echo  5. Set/change the root PATH
+echo  6. Back to main menu
+set /p ech="Select action: "
 
 if "%ech%"=="1" goto EDIT_SHOW
 if "%ech%"=="2" goto EDIT_ADD
@@ -389,34 +445,34 @@ goto EDIT_PATHS
 
 :EDIT_ROOT
 cls
-echo --- Корневой PATH ---
+echo --- Root PATH ---
 if defined ROOT (
-    echo Текущее значение: !ROOT!
+    echo Current value: !ROOT!
 ) else (
-    echo Сейчас не задан - все пути в tools.cfg считаются абсолютными.
+    echo Currently not set - all paths in tools.cfg are treated as absolute.
 )
 echo.
-echo Введите новую папку ^(например D:\Инструменты\Программы^).
-echo Оставьте строку пустой и нажмите Enter, чтобы отключить PATH.
-set /p newroot="Новый корневой PATH: "
+echo Enter a new folder ^(for example D:\Tools\Programs^).
+echo Leave the line empty and press Enter to disable PATH.
+set /p newroot="New root PATH: "
 if "!newroot:~-1!"=="\" set "newroot=!newroot:~0,-1!"
 > "%ROOTFILE%" (
     if not "%newroot%"=="" echo %newroot%
 )
 call :LOAD_ROOT
 if defined ROOT (
-    echo Корневой PATH установлен: !ROOT!
+    echo Root PATH set: !ROOT!
 ) else (
-    echo Корневой PATH отключён, пути в tools.cfg должны быть абсолютными.
+    echo Root PATH disabled; paths in tools.cfg must be absolute.
 )
 pause
 goto EDIT_PATHS
 
 :EDIT_ADD
 cls
-set /p newname="Название инструмента: "
+set /p newname="Tool name: "
 if "%newname%"=="" (
-    echo Название не может быть пустым.
+    echo Name cannot be empty.
     pause
     goto EDIT_PATHS
 )
@@ -427,26 +483,26 @@ for /l %%i in (1,1,!count!) do (
     if /I "!name%%i!"=="!newname!" set "dup=1"
 )
 if defined dup (
-    echo Инструмент с названием "!newname!" уже существует.
+    echo A tool named "!newname!" already exists.
     pause
     goto EDIT_PATHS
 )
 
 if defined ROOT (
-    echo Корневой PATH задан ^(!ROOT!^) - можно ввести
-    echo относительный путь ^(например Tool\Tool.exe^)
-    echo либо полный абсолютный путь ^(C:\...^).
+    echo Root PATH is set ^(!ROOT!^) - you can enter
+    echo a relative path ^(for example Tool\Tool.exe^)
+    echo or a full absolute path ^(C:\...^).
 ) else (
-    echo Корневой PATH не задан - вводите полный путь к exe-файлу.
+    echo Root PATH is not set - enter the full path to the exe file.
 )
-set /p newpath="Путь к exe-файлу: "
+set /p newpath="Path to the exe file: "
 if "%newpath%"=="" (
-    echo Путь не может быть пустым.
+    echo Path cannot be empty.
     pause
     goto EDIT_PATHS
 )
 echo !newname!=!newpath!>> "%CONFIG%"
-echo Инструмент "!newname!" добавлен.
+echo Tool "!newname!" added.
 pause
 goto EDIT_PATHS
 
@@ -457,22 +513,22 @@ if "!count!"=="0" (
     pause
     goto EDIT_PATHS
 )
-set /p midx="Номер инструмента для изменения: "
+set /p midx="Tool number to change: "
 echo !midx!|findstr /r "^[1-9][0-9]*$" >nul
 if errorlevel 1 (
-    echo Неверный номер.
+    echo Invalid number.
     pause
     goto EDIT_PATHS
 )
 if !midx! GTR !count! (
-    echo Неверный номер.
+    echo Invalid number.
     pause
     goto EDIT_PATHS
 )
 set "mname=!name%midx%!"
-set /p newpath="Новый путь для "!mname!" (абсолютный или относительный к PATH): "
+set /p newpath="New path for "!mname!" (absolute or relative to PATH): "
 if "%newpath%"=="" (
-    echo Путь не может быть пустым.
+    echo Path cannot be empty.
     pause
     goto EDIT_PATHS
 )
@@ -488,7 +544,7 @@ if "%newpath%"=="" (
     )
 )
 move /y "%CONFIG%.tmp" "%CONFIG%" >nul
-echo Путь для "!mname!" обновлён.
+echo Path for "!mname!" updated.
 pause
 goto EDIT_PATHS
 
@@ -499,15 +555,15 @@ if "!count!"=="0" (
     pause
     goto EDIT_PATHS
 )
-set /p didx="Номер инструмента для удаления: "
+set /p didx="Tool number to delete: "
 echo !didx!|findstr /r "^[1-9][0-9]*$" >nul
 if errorlevel 1 (
-    echo Неверный номер.
+    echo Invalid number.
     pause
     goto EDIT_PATHS
 )
 if !didx! GTR !count! (
-    echo Неверный номер.
+    echo Invalid number.
     pause
     goto EDIT_PATHS
 )
@@ -520,6 +576,6 @@ set "dname=!name%didx%!"
     )
 )
 move /y "%CONFIG%.tmp" "%CONFIG%" >nul
-echo Инструмент "!dname!" удалён.
+echo Tool "!dname!" deleted.
 pause
 goto EDIT_PATHS
