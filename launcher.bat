@@ -4,14 +4,19 @@ chcp 65001 >nul
 
 set "CONFIG=%~dp0tools.cfg"
 set "ROOTFILE=%~dp0root.cfg"
-set "LOG=%~dp0launch_log.csv"
-set "REPORT=%~dp0report.txt"
-set "LOGLOCK=%~dp0.log.lock"
+set "REPORTDIR=%~dp0reports"
+set "LOGDIR=%REPORTDIR%\logs"
+set "LOG=%REPORTDIR%\launch_log.csv"
+set "REPORT=%REPORTDIR%\report.txt"
+set "LOGLOCK=%REPORTDIR%\log.lock"
 set "maxcount=0"
 
+
+if not exist "%REPORTDIR%" mkdir "%REPORTDIR%"
+if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 if not exist "%CONFIG%" type nul > "%CONFIG%"
 if not exist "%ROOTFILE%" type nul > "%ROOTFILE%"
-if not exist "%LOG%" echo Date;Time;Tool;ExitCode> "%LOG%"
+if not exist "%LOG%" echo Date;Time;Tool;ExitCode;OutputLog> "%LOG%"
 
 call :LOAD_ROOT
 
@@ -158,16 +163,25 @@ if not exist "!tpath!" (
     echo [Error] File not found: !tpath!
     set "logtime=%time%"
     set "logtime=!logtime:,=.!"
-    call :LOG_APPEND "%date%;!logtime!;!tname!;FILE_NOT_FOUND"
+    call :LOG_APPEND "%date%;!logtime!;!tname!;FILE_NOT_FOUND;!TOOLLOG!"
     goto :eof
 )
 
 echo Running: !tname! (!tpath!) ...
-"%tpath%"
+set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+set "stamp=!stamp: =0!"
+set "TOOLLOG=%LOGDIR%\!tname!_!stamp!.log"
+"%tpath%" > "!TOOLLOG!" 2>&1
 set "exitcode=!errorlevel!"
 set "logtime=%time%"
 set "logtime=!logtime:,=.!"
-call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!"
+for %%F in ("!TOOLLOG!") do set "LOGSIZE=%%~zF"
+if "!LOGSIZE!"=="0" (
+    del "!TOOLLOG!" >nul 2>&1
+    call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!;"
+) else (
+    call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!;!TOOLLOG!"
+)
 echo   -^> "!tname!" finished with exit code !exitcode!.
 goto :eof
 
@@ -187,21 +201,21 @@ if !aidx! GTR !count! (
 
 set "aname=!name%aidx%!"
 echo Starting in background: !aname!
-start "!aname!" cmd /c call "%~f0" __worker__ "!aname!"
+start "" /b cmd /c call "%~f0" __worker__ "!aname!"
 goto :eof
 
 :WORKER_MODE
 setlocal EnableDelayedExpansion
 set "wname=%~2"
 set "wpath="
+
 for /f "usebackq eol=; tokens=1,* delims==" %%A in ("%CONFIG%") do (
     if not "%%A"=="" if not "%%B"=="" (
         if /I "%%A"=="%wname%" set "wpath=%%B"
     )
 )
+
 if not defined wpath (
-    echo [Error] Tool "%wname%" not found in tools.cfg.
-    timeout /t 3 >nul
     exit /b 1
 )
 
@@ -209,22 +223,31 @@ call :RESOLVE_PATH "!wpath!"
 set "tpath=!resolved!"
 
 if not exist "!tpath!" (
-    echo [Error] File not found: !tpath!
     set "logtime=%time%"
     set "logtime=!logtime:,=.!"
-    call :LOG_APPEND "%date%;!logtime!;!wname!;FILE_NOT_FOUND"
-    timeout /t 3 >nul
+    call :LOG_APPEND "%date%;!logtime!;!wname!;FILE_NOT_FOUND;"
     exit /b 1
 )
 
-echo Running: !wname! ^(!tpath!^) ...
-"%tpath%"
+set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+set "stamp=!stamp: =0!"
+set "TOOLLOG=%LOGDIR%\!wname!_!stamp!.log"
+
+"%tpath%" > "!TOOLLOG!" 2>&1
+
 set "exitcode=!errorlevel!"
 set "logtime=%time%"
 set "logtime=!logtime:,=.!"
-call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!"
-echo !wname! finished with exit code !exitcode!.
-timeout /t 2 >nul
+
+for %%F in ("!TOOLLOG!") do set "LOGSIZE=%%~zF"
+
+if "!LOGSIZE!"=="0" (
+    del "!TOOLLOG!" >nul 2>&1
+    call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;"
+) else (
+    call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;!TOOLLOG!"
+)
+
 exit /b 0
 
 :RUN_ONE
@@ -252,31 +275,37 @@ if "!count!"=="0" (
     pause
     goto MAIN_MENU
 )
+
 echo.
 echo Enter numbers separated by commas, for example: 1,3,4
 set /p sels="Numbers: "
+
 echo.
 echo Run mode:
 echo   1. Sequentially ^(wait for each to finish before the next^)
 echo   2. In parallel ^(all at once, each in its own window^)
 set /p rmode="Select mode (1/2): "
+
 set "sels=!sels:,= !"
 
 if "%rmode%"=="2" (
     for %%s in (!sels!) do (
         if not "%%~s"=="" call :LAUNCH_MANY_ASYNC %%~s
     )
+
     echo.
-    echo All selected tools have been started in parallel, each in its own window.
-    echo Log entries will be added as each one finishes.
-    echo Generate a report ^(menu item 3^) later once all windows are closed.
-) else (
-    for %%s in (!sels!) do (
-        if not "%%~s"=="" call :LAUNCH_TOOL %%~s
-    )
-    echo.
-    echo Bulk run completed.
+    echo All selected tools have been started in parallel.
+    echo Logs and exit codes will be saved automatically.
+    timeout /t 3 >nul
+    goto MAIN_MENU
 )
+
+for %%s in (!sels!) do (
+    if not "%%~s"=="" call :LAUNCH_TOOL %%~s
+)
+
+echo.
+echo Bulk run completed.
 pause
 goto MAIN_MENU
 
@@ -292,7 +321,7 @@ if not exist "%LOG%" (
 set total=0
 set ok=0
 set fail=0
-for /f "usebackq skip=1 tokens=1-4 delims=;" %%a in ("%LOG%") do (
+for /f "usebackq skip=1 tokens=1-5 delims=;" %%a in ("%LOG%") do (
     set /a total+=1
 
     if /I "%%d"=="FILE_NOT_FOUND" (
@@ -306,7 +335,8 @@ set "C1=12"
 set "C2=14"
 set "C3=26"
 set "C4=16"
-set /a TW=C1+C2+C3+C4+9
+set "C5=100"
+set /a TW=C1+C2+C3+C4+C5+4
 set "DASHES=----------------------------------------------------------------------------------------------"
 set "DIV=!DASHES:~0,%TW%!"
 
@@ -318,6 +348,8 @@ call :PAD "Tool" %C3%
 set "H3=!padded!"
 call :PAD "Exit code" %C4%
 set "H4=!padded!"
+call :PAD "Tool log" %C5%
+set "H5=!padded!"
 
 call :PAD "Total runs:" 24
 set "L1=!padded!"
@@ -334,11 +366,11 @@ set "L3=!padded!"
     echo !L2!!ok!
     echo !L3!!fail!
     echo !DIV!
-    echo !H1! ^| !H2! ^| !H3! ^| !H4!
+    echo !H1! ^| !H2! ^| !H3! ^| !H4! ^| !H5!
     echo !DIV!
 ) > "%REPORT%"
 
-for /f "usebackq skip=1 tokens=1-4 delims=;" %%a in ("%LOG%") do (
+for /f "usebackq skip=1 tokens=1-5 delims=;" %%a in ("%LOG%") do (
     call :PAD "%%a" %C1%
     set "R1=!padded!"
     call :PAD "%%b" %C2%
@@ -347,10 +379,34 @@ for /f "usebackq skip=1 tokens=1-4 delims=;" %%a in ("%LOG%") do (
     set "R3=!padded!"
     call :PAD "%%d" %C4%
     set "R4=!padded!"
-    echo !R1! ^| !R2! ^| !R3! ^| !R4!>> "%REPORT%"
+    call :PAD "%%e" %C5%
+    set "R5=!padded!"
+    echo !R1! ^| !R2! ^| !R3! ^| !R4! ^| !R5!>> "%REPORT%"
 )
 
 echo !DIV!>> "%REPORT%"
+
+echo.>> "%REPORT%"
+echo =====================================================>> "%REPORT%"
+echo TOOL OUTPUT LOGS>> "%REPORT%"
+echo =====================================================>> "%REPORT%"
+
+for /f "usebackq skip=1 tokens=1-5 delims=;" %%a in ("%LOG%") do (
+    echo.>> "%REPORT%"
+    echo Tool: %%c>> "%REPORT%"
+    echo Exit code: %%d>> "%REPORT%"
+    echo Log file: %%e>> "%REPORT%"
+    echo -------------------------------------------------->> "%REPORT%"
+
+    if exist "%%e" (
+        type "%%e" >> "%REPORT%"
+    ) else (
+        echo [No console output or log file not found]>> "%REPORT%"
+    )
+
+    echo.>> "%REPORT%"
+    echo -------------------------------------------------->> "%REPORT%"
+)
 
 echo Report saved: %REPORT%
 pause
