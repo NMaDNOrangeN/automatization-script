@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal EnableDelayedExpansion
 chcp 65001 >nul
 
@@ -16,7 +16,7 @@ if not exist "%REPORTDIR%" mkdir "%REPORTDIR%"
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 if not exist "%CONFIG%" type nul > "%CONFIG%"
 if not exist "%ROOTFILE%" type nul > "%ROOTFILE%"
-if not exist "%LOG%" echo Date;Time;Tool;ExitCode;OutputLog> "%LOG%"
+if not exist "%LOG%" echo Date;Time;Tool;Arguments;OutputLog> "%LOG%"
 
 call :LOAD_ROOT
 
@@ -109,13 +109,14 @@ goto :eof
 :PAD
 set "padval=%~1"
 set "padwidth=%~2"
-set "padval=!padval!                                                                "
+set "padval=!padval!"
 set "padded=!padval:~0,%padwidth%!"
 goto :eof
 
 :LIST_TOOLS
 for /l %%i in (1,1,!maxcount!) do (
     set "name%%i="
+    set "type%%i="    
     set "path%%i="
 )
 set count=0
@@ -123,12 +124,15 @@ for /f "usebackq eol=; tokens=1,* delims==" %%A in ("%CONFIG%") do (
     if not "%%A"=="" if not "%%B"=="" (
         set /a count+=1
         set "name!count!=%%A"
-        set "path!count!=%%B"
-        echo !count!. %%A
+        for /f "tokens=1,* delims=|" %%X in ("%%B") do (
+	    set "type!count!=%%X"
+	    set "path!count!=%%Y"
+	)
+        call echo !count!. %%A [%%type!count!%%]
     )
 )
 if !count! GTR !maxcount! set "maxcount=!count!"
-if "!count!"=="0" echo   (list empty)
+if "!count!"=="0" echo (list empty)
 goto :eof
 
 :LIST_TOOLS_FULL
@@ -156,8 +160,13 @@ if !idx! GTR !count! (
 )
 
 set "tname=!name%idx%!"
+set "ttype=!type%idx%!"
+
 call :RESOLVE_PATH "!path%idx%!"
 set "tpath=!resolved!"
+for %%F in ("!tpath!") do (
+    set "tooldir=%%~dpF"
+)
 
 if not exist "!tpath!" (
     echo [Error] File not found: !tpath!
@@ -168,10 +177,55 @@ if not exist "!tpath!" (
 )
 
 echo Running: !tname! (!tpath!) ...
-set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
-set "stamp=!stamp: =0!"
-set "TOOLLOG=%LOGDIR%\!tname!_!stamp!.log"
-"%tpath%" > "!TOOLLOG!" 2>&1
+if /I "!ttype!"=="console" (
+
+    echo.
+    echo Console tool detected:
+    echo 1. Interactive mode
+    echo 2. Run with arguments and save log
+    set /p cmode="Select mode (1/2): "
+
+    if "!cmode!"=="1" (
+
+        start "!tname!" cmd /k "cd /d ""!tooldir!"" && ""!tpath!"""
+        goto :eof
+
+    ) else (
+
+        echo.
+        set /p USERARGS="Arguments: "
+
+        set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+        set "stamp=!stamp: =0!"
+        set "TOOLLOG=%LOGDIR%\!tname!_!stamp!.log"
+
+        pushd "!tooldir!"
+
+        "!tpath!" !USERARGS! > "!TOOLLOG!" 2>&1
+
+        set "exitcode=!errorlevel!"
+
+        popd
+
+        set "logtime=%time%"
+        set "logtime=!logtime:,=.!"
+
+        call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!;!TOOLLOG!"
+
+        echo.
+        echo Log saved:
+        echo !TOOLLOG!
+
+        goto :eof
+    )
+
+) else (
+    set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+    set "stamp=!stamp: =0!"
+    set "TOOLLOG=%LOGDIR%\!tname!_!stamp!.log"
+    "%tpath%" > "!TOOLLOG!" 2>&1
+    set "exitcode=!errorlevel!"
+)
 set "exitcode=!errorlevel!"
 set "logtime=%time%"
 set "logtime=!logtime:,=.!"
@@ -201,53 +255,82 @@ if !aidx! GTR !count! (
 
 set "aname=!name%aidx%!"
 echo Starting in background: !aname!
-start "" /b cmd /c call "%~f0" __worker__ "!aname!"
+start "" "%~f0" __worker__ "!aname!"
 goto :eof
 
 :WORKER_MODE
 setlocal EnableDelayedExpansion
+
 set "wname=%~2"
 set "wpath="
+set "wtype=gui"
 
 for /f "usebackq eol=; tokens=1,* delims==" %%A in ("%CONFIG%") do (
-    if not "%%A"=="" if not "%%B"=="" (
-        if /I "%%A"=="%wname%" set "wpath=%%B"
+    if /I "%%A"=="%wname%" (
+        for /f "tokens=1,* delims=|" %%X in ("%%B") do (
+            set "wtype=%%X"
+            set "wpath=%%Y"
+        )
     )
 )
 
 if not defined wpath (
+    echo [Error] Tool "%wname%" not found in tools.cfg.
+    timeout /t 3 >nul
     exit /b 1
 )
 
 call :RESOLVE_PATH "!wpath!"
 set "tpath=!resolved!"
+for %%F in ("!tpath!") do (
+    set "tooldir=%%~dpF"
+)
 
 if not exist "!tpath!" (
+    echo [Error] File not found: !tpath!
     set "logtime=%time%"
     set "logtime=!logtime:,=.!"
     call :LOG_APPEND "%date%;!logtime!;!wname!;FILE_NOT_FOUND;"
+    timeout /t 3 >nul
     exit /b 1
 )
+
+echo Running: !wname! ^(!tpath!^) ...
 
 set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
 set "stamp=!stamp: =0!"
 set "TOOLLOG=%LOGDIR%\!wname!_!stamp!.log"
 
-"%tpath%" > "!TOOLLOG!" 2>&1
+if /I "!wtype!"=="console" (
 
-set "exitcode=!errorlevel!"
-set "logtime=%time%"
-set "logtime=!logtime:,=.!"
+    start "Tool_!wname!" /wait cmd /k "cd /d "!tooldir!" && "!tpath!""
 
-for %%F in ("!TOOLLOG!") do set "LOGSIZE=%%~zF"
+    set "exitcode=!errorlevel!"
+    set "logtime=%time%"
+    set "logtime=!logtime:,=.!"
 
-if "!LOGSIZE!"=="0" (
-    del "!TOOLLOG!" >nul 2>&1
     call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;"
+
 ) else (
-    call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;!TOOLLOG!"
+
+    "!tpath!" > "!TOOLLOG!" 2>&1
+
+    set "exitcode=!errorlevel!"
+    set "logtime=%time%"
+    set "logtime=!logtime:,=.!"
+
+    for %%F in ("!TOOLLOG!") do set "LOGSIZE=%%~zF"
+
+    if "!LOGSIZE!"=="0" (
+        del "!TOOLLOG!" >nul 2>&1
+        call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;"
+    ) else (
+        call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;!TOOLLOG!"
+    )
 )
 
+echo Window closed.
+timeout /t 2 >nul
 exit /b 0
 
 :RUN_ONE
