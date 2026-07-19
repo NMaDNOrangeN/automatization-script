@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal EnableDelayedExpansion
 chcp 65001 >nul
 
@@ -16,7 +16,7 @@ if not exist "%REPORTDIR%" mkdir "%REPORTDIR%"
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 if not exist "%CONFIG%" type nul > "%CONFIG%"
 if not exist "%ROOTFILE%" type nul > "%ROOTFILE%"
-if not exist "%LOG%" echo Date;Time;Tool;ExitCode;OutputLog> "%LOG%"
+if not exist "%LOG%" echo Date;Time;Tool;Arguments;OutputLog> "%LOG%"
 
 call :LOAD_ROOT
 
@@ -109,13 +109,14 @@ goto :eof
 :PAD
 set "padval=%~1"
 set "padwidth=%~2"
-set "padval=!padval!                                                                "
+set "padval=!padval!"
 set "padded=!padval:~0,%padwidth%!"
 goto :eof
 
 :LIST_TOOLS
 for /l %%i in (1,1,!maxcount!) do (
     set "name%%i="
+    set "type%%i="    
     set "path%%i="
 )
 set count=0
@@ -123,19 +124,22 @@ for /f "usebackq eol=; tokens=1,* delims==" %%A in ("%CONFIG%") do (
     if not "%%A"=="" if not "%%B"=="" (
         set /a count+=1
         set "name!count!=%%A"
-        set "path!count!=%%B"
-        echo !count!. %%A
+        for /f "tokens=1,* delims=|" %%X in ("%%B") do (
+	    set "type!count!=%%X"
+	    set "path!count!=%%Y"
+	)
+        call echo !count!. %%A [%%type!count!%%]
     )
 )
 if !count! GTR !maxcount! set "maxcount=!count!"
-if "!count!"=="0" echo   (list empty)
+if "!count!"=="0" echo (list empty)
 goto :eof
 
 :LIST_TOOLS_FULL
 call :LIST_TOOLS >nul
 for /l %%i in (1,1,!count!) do (
     call :RESOLVE_PATH "!path%%i!"
-    echo %%i. !name%%i!
+    echo %%i. !name%%i! [!type%%i!]
     echo      -^> !resolved!
 )
 if "!count!"=="0" echo   (list empty)
@@ -156,8 +160,13 @@ if !idx! GTR !count! (
 )
 
 set "tname=!name%idx%!"
+set "ttype=!type%idx%!"
+
 call :RESOLVE_PATH "!path%idx%!"
 set "tpath=!resolved!"
+for %%F in ("!tpath!") do (
+    set "tooldir=%%~dpF"
+)
 
 if not exist "!tpath!" (
     echo [Error] File not found: !tpath!
@@ -168,10 +177,55 @@ if not exist "!tpath!" (
 )
 
 echo Running: !tname! (!tpath!) ...
-set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
-set "stamp=!stamp: =0!"
-set "TOOLLOG=%LOGDIR%\!tname!_!stamp!.log"
-"%tpath%" > "!TOOLLOG!" 2>&1
+if /I "!ttype!"=="console" (
+
+    echo.
+    echo Console tool detected:
+    echo 1. Interactive mode
+    echo 2. Run with arguments and save log
+    set /p cmode="Select mode (1/2): "
+
+    if "!cmode!"=="1" (
+
+        start "!tname!" cmd /k "cd /d ""!tooldir!"" && ""!tpath!"""
+        goto :eof
+
+    ) else (
+
+        echo.
+        set /p USERARGS="Arguments: "
+
+        set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+        set "stamp=!stamp: =0!"
+        set "TOOLLOG=%LOGDIR%\!tname!_!stamp!.log"
+
+        pushd "!tooldir!"
+
+        "!tpath!" !USERARGS! > "!TOOLLOG!" 2>&1
+
+        set "exitcode=!errorlevel!"
+
+        popd
+
+        set "logtime=%time%"
+        set "logtime=!logtime:,=.!"
+
+        call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!;!TOOLLOG!"
+
+        echo.
+        echo Log saved:
+        echo !TOOLLOG!
+
+        goto :eof
+    )
+
+) else (
+    set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+    set "stamp=!stamp: =0!"
+    set "TOOLLOG=%LOGDIR%\!tname!_!stamp!.log"
+    "%tpath%" > "!TOOLLOG!" 2>&1
+    set "exitcode=!errorlevel!"
+)
 set "exitcode=!errorlevel!"
 set "logtime=%time%"
 set "logtime=!logtime:,=.!"
@@ -201,51 +255,83 @@ if !aidx! GTR !count! (
 
 set "aname=!name%aidx%!"
 echo Starting in background: !aname!
-start "" /b cmd /c call "%~f0" __worker__ "!aname!"
+
+set "worker_file=%REPORTDIR%\warg_%random%_%random%.tmp"
+> "!worker_file!" echo !aname!
+
+echo CreateObject("WScript.Shell").Run """%~f0"" __worker__ ""!worker_file!""", 0, False > "%REPORTDIR%\runw.vbs"
+wscript.exe //B "%REPORTDIR%\runw.vbs"
+
 goto :eof
 
 :WORKER_MODE
+chcp 65001 >nul
+cd /d "%~dp0"
 setlocal EnableDelayedExpansion
-set "wname=%~2"
-set "wpath="
 
+set "CONFIG=%~dp0tools.cfg"
+set "ROOTFILE=%~dp0root.cfg"
+set "REPORTDIR=%~dp0reports"
+set "LOGDIR=%REPORTDIR%\logs"
+set "LOG=%REPORTDIR%\launch_log.csv"
+
+set "worker_file=%~2"
+if not defined worker_file exit /b 1
+
+set "wname="
+if exist "%worker_file%" (
+    set /p wname=<"%worker_file%"
+    del "%worker_file%" 2>nul
+)
+
+if not defined wname exit /b 1
+
+set "wpath="
+set "wtype=gui"
 for /f "usebackq eol=; tokens=1,* delims==" %%A in ("%CONFIG%") do (
-    if not "%%A"=="" if not "%%B"=="" (
-        if /I "%%A"=="%wname%" set "wpath=%%B"
+    if /I "%%A"=="%wname%" (
+        for /f "tokens=1,* delims=|" %%X in ("%%B") do (
+            set "wtype=%%X"
+            set "wpath=%%Y"
+        )
     )
 )
 
 if not defined wpath (
+    call :LOG_APPEND "%date%;%time%;%wname%;NOT_FOUND;"
     exit /b 1
 )
 
 call :RESOLVE_PATH "!wpath!"
 set "tpath=!resolved!"
+for %%F in ("!tpath!") do set "tooldir=%%~dpF"
 
 if not exist "!tpath!" (
-    set "logtime=%time%"
-    set "logtime=!logtime:,=.!"
-    call :LOG_APPEND "%date%;!logtime!;!wname!;FILE_NOT_FOUND;"
+    call :LOG_APPEND "%date%;%time%;%wname%;FILE_NOT_FOUND;"
     exit /b 1
 )
 
-set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%_%random%"
 set "stamp=!stamp: =0!"
 set "TOOLLOG=%LOGDIR%\!wname!_!stamp!.log"
 
-"%tpath%" > "!TOOLLOG!" 2>&1
-
-set "exitcode=!errorlevel!"
-set "logtime=%time%"
-set "logtime=!logtime:,=.!"
-
-for %%F in ("!TOOLLOG!") do set "LOGSIZE=%%~zF"
-
-if "!LOGSIZE!"=="0" (
-    del "!TOOLLOG!" >nul 2>&1
-    call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;"
+if /I "!wtype!"=="console" (
+    start "Tool_!wname!" cmd /k "cd /d "!tooldir!" && "!tpath!""
+    set "logtime=%time%"
+    set "logtime=!logtime:,=.!"
+    call :LOG_APPEND "%date%;!logtime!;!wname!;0;Started (interactive)"
 ) else (
-    call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;!TOOLLOG!"
+    "!tpath!" > "!TOOLLOG!" 2>&1
+    set "exitcode=!errorlevel!"
+    set "logtime=%time%"
+    set "logtime=!logtime:,=.!"
+    for %%F in ("!TOOLLOG!") do set "LOGSIZE=%%~zF"
+    if "!LOGSIZE!"=="0" (
+        del "!TOOLLOG!" >nul 2>&1
+        call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;"
+    ) else (
+        call :LOG_APPEND "%date%;!logtime!;!wname!;!exitcode!;!TOOLLOG!"
+    )
 )
 
 exit /b 0
@@ -488,6 +574,21 @@ if defined dup (
     goto EDIT_PATHS
 )
 
+echo.
+echo Tool type:
+echo   1. GUI (default)
+echo   2. Console
+set /p ttype="Select type (1/2, Enter=1): "
+if not defined ttype set "ttype=1"
+if "%ttype%"=="1" (
+    set "tooltype=gui"
+) else if "%ttype%"=="2" (
+    set "tooltype=console"
+) else (
+    echo Invalid type, defaulting to GUI.
+    set "tooltype=gui"
+)
+
 if defined ROOT (
     echo Root PATH is set ^(!ROOT!^) - you can enter
     echo a relative path ^(for example Tool\Tool.exe^)
@@ -501,8 +602,10 @@ if "%newpath%"=="" (
     pause
     goto EDIT_PATHS
 )
-echo !newname!=!newpath!>> "%CONFIG%"
-echo Tool "!newname!" added.
+
+>> "%CONFIG%" echo.
+>> "%CONFIG%" echo(!newname!=!tooltype!^|!newpath!
+echo Tool "!newname!" (!tooltype!) added.
 pause
 goto EDIT_PATHS
 
@@ -526,17 +629,30 @@ if !midx! GTR !count! (
     goto EDIT_PATHS
 )
 set "mname=!name%midx%!"
-set /p newpath="New path for "!mname!" (absolute or relative to PATH): "
-if "%newpath%"=="" (
-    echo Path cannot be empty.
-    pause
-    goto EDIT_PATHS
+set "mtype=!type%midx%!"
+echo Current tool: !mname! [!mtype!]
+echo.
+set /p newpath="New path (leave blank to keep existing): "
+if "%newpath%"=="" set "newpath=!path%midx%!"
+echo.
+echo Current type: !mtype!
+echo Change type? (1=GUI, 2=Console, Enter=keep current)
+set /p newtype="Select (1/2/Enter): "
+if not defined newtype (
+    set "newtype=!mtype!"
+) else if "%newtype%"=="1" (
+    set "newtype=gui"
+) else if "%newtype%"=="2" (
+    set "newtype=console"
+) else (
+    set "newtype=!mtype!"
 )
+
 > "%CONFIG%.tmp" (
     for /f "usebackq eol=; tokens=1,* delims==" %%A in ("%CONFIG%") do (
         if not "%%A"=="" if not "%%B"=="" (
             if /I "%%A"=="!mname!" (
-                echo %%A=!newpath!
+                echo(%%A=!newtype!^|!newpath!
             ) else (
                 echo %%A=%%B
             )
@@ -544,7 +660,7 @@ if "%newpath%"=="" (
     )
 )
 move /y "%CONFIG%.tmp" "%CONFIG%" >nul
-echo Path for "!mname!" updated.
+echo Tool "!mname!" updated: !newtype! ^| !newpath!
 pause
 goto EDIT_PATHS
 
