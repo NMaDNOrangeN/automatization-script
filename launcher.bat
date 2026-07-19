@@ -25,28 +25,28 @@ if /I "%~1"=="__worker__" goto WORKER_MODE
 :MAIN_MENU
 cls
 echo ==================================================
-echo            BUILD LAUNCHER
+echo               ЛАУНЧЕР СБОРКИ
 echo ==================================================
 if defined ROOT (
-    echo  Root PATH: !ROOT!
+    echo  Корневой путь: !ROOT!
 ) else (
-    echo  Root PATH: not set ^(absolute paths will be used^)
+    echo  Корневой путь: не задан ^(будут использоваться абсолютные пути^)
 )
 echo ==================================================
-echo  1. Run one tool
-echo  2. Run multiple tools
-echo  3. Generate run report
-echo  4. Tool paths editor
-echo  5. Exit
+echo  1. Запустить один инструмент
+echo  2. Запустить несколько инструментов
+echo  3. Сформировать отчёт о запусках
+echo  4. Редактор путей к инструментам
+echo  5. Выход
 echo ==================================================
-set /p choice="Select menu item: "
+set /p choice="Выберите пункт меню: "
 
 if "%choice%"=="1" goto RUN_ONE
 if "%choice%"=="2" goto RUN_MANY
 if "%choice%"=="3" goto REPORT
 if "%choice%"=="4" goto EDIT_PATHS
 if "%choice%"=="5" goto :EOF
-echo Invalid selection.
+echo Неверный выбор.
 pause
 goto MAIN_MENU
 
@@ -93,7 +93,7 @@ if errorlevel 1 (
     set /a loglock_tries+=1
 
     if !loglock_tries! geq 50 (
-        echo [Error] Could not access the log.
+        echo [Ошибка] Не удалось получить доступ к лог-файлу.
         goto :eof
     )
 
@@ -132,7 +132,7 @@ for /f "usebackq eol=; tokens=1,* delims==" %%A in ("%CONFIG%") do (
     )
 )
 if !count! GTR !maxcount! set "maxcount=!count!"
-if "!count!"=="0" echo (list empty)
+if "!count!"=="0" echo (список пуст)
 goto :eof
 
 :LIST_TOOLS_FULL
@@ -142,7 +142,7 @@ for /l %%i in (1,1,!count!) do (
     echo %%i. !name%%i! [!type%%i!]
     echo      -^> !resolved!
 )
-if "!count!"=="0" echo   (list empty)
+if "!count!"=="0" echo   (список пуст)
 goto :eof
 
 :LAUNCH_TOOL
@@ -151,11 +151,11 @@ if not defined idx goto :eof
 
 echo !idx!|findstr /r "^[1-9][0-9]*$" >nul
 if errorlevel 1 (
-    echo [Error] Tool number must be a positive number: !idx!
+    echo [Ошибка] Номер инструмента должен быть положительным числом: !idx!
     goto :eof
 )
 if !idx! GTR !count! (
-    echo [Error] Invalid tool number: !idx!
+    echo [Ошибка] Неверный номер инструмента: !idx!
     goto :eof
 )
 
@@ -169,21 +169,21 @@ for %%F in ("!tpath!") do (
 )
 
 if not exist "!tpath!" (
-    echo [Error] File not found: !tpath!
+    echo [Ошибка] Файл не найден: !tpath!
     set "logtime=%time%"
     set "logtime=!logtime:,=.!"
     call :LOG_APPEND "%date%;!logtime!;!tname!;FILE_NOT_FOUND;!TOOLLOG!"
     goto :eof
 )
 
-echo Running: !tname! (!tpath!) ...
+echo Запуск: !tname! (!tpath!) ...
 if /I "!ttype!"=="console" (
 
     echo.
-    echo Console tool detected:
-    echo 1. Interactive mode
-    echo 2. Run with arguments and save log
-    set /p cmode="Select mode (1/2): "
+    echo Обнаружен консольный инструмент:
+    echo 1. Интерактивный режим
+    echo 2. Запуск с параметрами и сохранением лога
+    set /p cmode="Выберите режим (1/2): "
 
     if "!cmode!"=="1" (
 
@@ -193,7 +193,7 @@ if /I "!ttype!"=="console" (
     ) else (
 
         echo.
-        set /p USERARGS="Arguments: "
+        set /p USERARGS="Параметры: "
 
         set "stamp=%date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
         set "stamp=!stamp: =0!"
@@ -213,7 +213,7 @@ if /I "!ttype!"=="console" (
         call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!;!TOOLLOG!"
 
         echo.
-        echo Log saved:
+        echo Лог сохранён:
         echo !TOOLLOG!
 
         goto :eof
@@ -236,7 +236,7 @@ if "!LOGSIZE!"=="0" (
 ) else (
     call :LOG_APPEND "%date%;!logtime!;!tname!;!exitcode!;!TOOLLOG!"
 )
-echo   -^> "!tname!" finished with exit code !exitcode!.
+echo   -^> "!tname!" завершён с кодом возврата !exitcode!.
 goto :eof
 
 :LAUNCH_MANY_ASYNC
@@ -245,16 +245,16 @@ if not defined aidx goto :eof
 
 echo !aidx!|findstr /r "^[1-9][0-9]*$" >nul
 if errorlevel 1 (
-    echo [Error] Tool number must be a positive number: !aidx!
+    echo [Ошибка] Номер инструмента должен быть положительным числом: !aidx!
     goto :eof
 )
 if !aidx! GTR !count! (
-    echo [Error] Invalid tool number: !aidx!
+    echo [Ошибка] Неверный номер инструмента: !aidx!
     goto :eof
 )
 
 set "aname=!name%aidx%!"
-echo Starting in background: !aname!
+echo Запуск в фоне: !aname!
 
 set "worker_file=%REPORTDIR%\warg_%random%_%random%.tmp"
 > "!worker_file!" echo !aname!
@@ -319,7 +319,7 @@ if /I "!wtype!"=="console" (
     start "Tool_!wname!" cmd /k "cd /d "!tooldir!" && "!tpath!""
     set "logtime=%time%"
     set "logtime=!logtime:,=.!"
-    call :LOG_APPEND "%date%;!logtime!;!wname!;0;Started (interactive)"
+    call :LOG_APPEND "%date%;!logtime!;!wname!;0;Запущено (интерактивно)"
 ) else (
     "!tpath!" > "!TOOLLOG!" 2>&1
     set "exitcode=!errorlevel!"
@@ -338,15 +338,15 @@ exit /b 0
 
 :RUN_ONE
 cls
-echo --- Available tools ---
+echo --- Доступные инструменты ---
 call :LIST_TOOLS
 if "!count!"=="0" (
-    echo Add tools through menu item 4 in the main menu.
+    echo Добавьте инструменты через пункт меню 4 в главном меню.
     pause
     goto MAIN_MENU
 )
 echo.
-set /p sel="Tool number to run: "
+set /p sel="Номер инструмента для запуска: "
 call :LAUNCH_TOOL !sel!
 echo.
 pause
@@ -354,23 +354,23 @@ goto MAIN_MENU
 
 :RUN_MANY
 cls
-echo --- Available tools ---
+echo --- Доступные инструменты ---
 call :LIST_TOOLS
 if "!count!"=="0" (
-    echo Add tools through menu item 4 in the main menu.
+    echo Добавьте инструменты через пункт меню 4 в главном меню.
     pause
     goto MAIN_MENU
 )
 
 echo.
-echo Enter numbers separated by commas, for example: 1,3,4
-set /p sels="Numbers: "
+echo Введите номера через запятую, например: 1,3,4
+set /p sels="Номера: "
 
 echo.
-echo Run mode:
-echo   1. Sequentially ^(wait for each to finish before the next^)
-echo   2. In parallel ^(all at once, each in its own window^)
-set /p rmode="Select mode (1/2): "
+echo Режим запуска:
+echo   1. Последовательно ^(ждать завершения каждого перед следующим^)
+echo   2. Параллельно ^(все сразу, каждый в своём процессе^)
+set /p rmode="Выберите режим (1/2): "
 
 set "sels=!sels:,= !"
 
@@ -380,8 +380,8 @@ if "%rmode%"=="2" (
     )
 
     echo.
-    echo All selected tools have been started in parallel.
-    echo Logs and exit codes will be saved automatically.
+    echo Все выбранные инструменты запущены параллельно.
+    echo Логи и коды возврата будут сохранены автоматически.
     timeout /t 3 >nul
     goto MAIN_MENU
 )
@@ -391,15 +391,15 @@ for %%s in (!sels!) do (
 )
 
 echo.
-echo Bulk run completed.
+echo Групповой запуск завершён.
 pause
 goto MAIN_MENU
 
 :REPORT
 cls
-echo --- Generating report ---
+echo --- Формирование отчёта ---
 if not exist "%LOG%" (
-    echo The log is missing, so the report cannot be generated.
+    echo Лог-файл отсутствует, отчёт не может быть сформирован.
     pause
     goto MAIN_MENU
 )
@@ -426,27 +426,27 @@ set /a TW=C1+C2+C3+C4+C5+4
 set "DASHES=----------------------------------------------------------------------------------------------"
 set "DIV=!DASHES:~0,%TW%!"
 
-call :PAD "Date" %C1%
+call :PAD "Дата" %C1%
 set "H1=!padded!"
-call :PAD "Time" %C2%
+call :PAD "Время" %C2%
 set "H2=!padded!"
-call :PAD "Tool" %C3%
+call :PAD "Инструмент" %C3%
 set "H3=!padded!"
-call :PAD "Exit code" %C4%
+call :PAD "Код возврата" %C4%
 set "H4=!padded!"
-call :PAD "Tool log" %C5%
+call :PAD "Лог инструмента" %C5%
 set "H5=!padded!"
 
-call :PAD "Total runs:" 24
+call :PAD "Всего запусков:" 24
 set "L1=!padded!"
-call :PAD "Successful:" 24
+call :PAD "Успешных:" 24
 set "L2=!padded!"
-call :PAD "Failed/not found:" 24
+call :PAD "Ошибок/не найдено:" 24
 set "L3=!padded!"
 
 (
-    echo TOOL RUN REPORT
-    echo Generated: %date% %time%
+    echo ОТЧЁТ О ЗАПУСКАХ ИНСТРУМЕНТОВ
+    echo Сформирован: %date% %time%
     echo !DIV!
     echo !L1!!total!
     echo !L2!!ok!
@@ -474,46 +474,46 @@ echo !DIV!>> "%REPORT%"
 
 echo.>> "%REPORT%"
 echo =====================================================>> "%REPORT%"
-echo TOOL OUTPUT LOGS>> "%REPORT%"
+echo ЛОГИ ВЫВОДА ИНСТРУМЕНТОВ>> "%REPORT%"
 echo =====================================================>> "%REPORT%"
 
 for /f "usebackq skip=1 tokens=1-5 delims=;" %%a in ("%LOG%") do (
     echo.>> "%REPORT%"
-    echo Tool: %%c>> "%REPORT%"
-    echo Exit code: %%d>> "%REPORT%"
-    echo Log file: %%e>> "%REPORT%"
+    echo Инструмент: %%c>> "%REPORT%"
+    echo Код возврата: %%d>> "%REPORT%"
+    echo Файл лога: %%e>> "%REPORT%"
     echo -------------------------------------------------->> "%REPORT%"
 
     if exist "%%e" (
         type "%%e" >> "%REPORT%"
     ) else (
-        echo [No console output or log file not found]>> "%REPORT%"
+        echo [Нет вывода в консоль или файл лога не найден]>> "%REPORT%"
     )
 
     echo.>> "%REPORT%"
     echo -------------------------------------------------->> "%REPORT%"
 )
 
-echo Report saved: %REPORT%
+echo Отчёт сохранён: %REPORT%
 pause
 goto MAIN_MENU
 
 :EDIT_PATHS
 cls
-echo --- Tool paths editor ---
+echo --- Редактор путей к инструментам ---
 if defined ROOT (
-    echo  Current root PATH: !ROOT!
+    echo  Текущий корневой путь: !ROOT!
 ) else (
-    echo  Root PATH is not set.
+    echo  Корневой путь не задан.
 )
 echo.
-echo  1. Show list ^(with resolved paths^)
-echo  2. Add a new tool
-echo  3. Change an existing path
-echo  4. Delete a tool
-echo  5. Set/change the root PATH
-echo  6. Back to main menu
-set /p ech="Select action: "
+echo  1. Показать список ^(с разрешёнными путями^)
+echo  2. Добавить новый инструмент
+echo  3. Изменить существующий путь
+echo  4. Удалить инструмент
+echo  5. Задать/изменить корневой путь
+echo  6. Назад в главное меню
+set /p ech="Выберите действие: "
 
 if "%ech%"=="1" goto EDIT_SHOW
 if "%ech%"=="2" goto EDIT_ADD
@@ -531,34 +531,34 @@ goto EDIT_PATHS
 
 :EDIT_ROOT
 cls
-echo --- Root PATH ---
+echo --- Корневой путь ---
 if defined ROOT (
-    echo Current value: !ROOT!
+    echo Текущее значение: !ROOT!
 ) else (
-    echo Currently not set - all paths in tools.cfg are treated as absolute.
+    echo Сейчас не задан - все пути в tools.cfg считаются абсолютными.
 )
 echo.
-echo Enter a new folder ^(for example D:\Tools\Programs^).
-echo Leave the line empty and press Enter to disable PATH.
-set /p newroot="New root PATH: "
+echo Введите новую папку ^(например D:\Tools\Programs^).
+echo Оставьте строку пустой и нажмите Enter, чтобы отключить корневой путь.
+set /p newroot="Новый корневой путь: "
 if "!newroot:~-1!"=="\" set "newroot=!newroot:~0,-1!"
 > "%ROOTFILE%" (
     if not "%newroot%"=="" echo %newroot%
 )
 call :LOAD_ROOT
 if defined ROOT (
-    echo Root PATH set: !ROOT!
+    echo Корневой путь задан: !ROOT!
 ) else (
-    echo Root PATH disabled; paths in tools.cfg must be absolute.
+    echo Корневой путь отключён; пути в tools.cfg должны быть абсолютными.
 )
 pause
 goto EDIT_PATHS
 
 :EDIT_ADD
 cls
-set /p newname="Tool name: "
+set /p newname="Имя инструмента: "
 if "%newname%"=="" (
-    echo Name cannot be empty.
+    echo Имя не может быть пустым.
     pause
     goto EDIT_PATHS
 )
@@ -569,43 +569,43 @@ for /l %%i in (1,1,!count!) do (
     if /I "!name%%i!"=="!newname!" set "dup=1"
 )
 if defined dup (
-    echo A tool named "!newname!" already exists.
+    echo Инструмент с именем "!newname!" уже существует.
     pause
     goto EDIT_PATHS
 )
 
 echo.
-echo Tool type:
-echo   1. GUI (default)
-echo   2. Console
-set /p ttype="Select type (1/2, Enter=1): "
+echo Тип инструмента:
+echo   1. GUI ^(по умолчанию^)
+echo   2. Консольный
+set /p ttype="Выберите тип (1/2, Enter=1): "
 if not defined ttype set "ttype=1"
 if "%ttype%"=="1" (
     set "tooltype=gui"
 ) else if "%ttype%"=="2" (
     set "tooltype=console"
 ) else (
-    echo Invalid type, defaulting to GUI.
+    echo Неверный тип, будет использован GUI по умолчанию.
     set "tooltype=gui"
 )
 
 if defined ROOT (
-    echo Root PATH is set ^(!ROOT!^) - you can enter
-    echo a relative path ^(for example Tool\Tool.exe^)
-    echo or a full absolute path ^(C:\...^).
+    echo Корневой путь задан ^(!ROOT!^) - вы можете ввести
+    echo относительный путь ^(например Tool\Tool.exe^)
+    echo или полный абсолютный путь ^(C:\...^).
 ) else (
-    echo Root PATH is not set - enter the full path to the exe file.
+    echo Корневой путь не задан - введите полный путь к exe-файлу.
 )
-set /p newpath="Path to the exe file: "
+set /p newpath="Путь к exe-файлу: "
 if "%newpath%"=="" (
-    echo Path cannot be empty.
+    echo Путь не может быть пустым.
     pause
     goto EDIT_PATHS
 )
 
 >> "%CONFIG%" echo.
 >> "%CONFIG%" echo(!newname!=!tooltype!^|!newpath!
-echo Tool "!newname!" (!tooltype!) added.
+echo Инструмент "!newname!" ^(!tooltype!^) добавлен.
 pause
 goto EDIT_PATHS
 
@@ -616,28 +616,28 @@ if "!count!"=="0" (
     pause
     goto EDIT_PATHS
 )
-set /p midx="Tool number to change: "
+set /p midx="Номер инструмента для изменения: "
 echo !midx!|findstr /r "^[1-9][0-9]*$" >nul
 if errorlevel 1 (
-    echo Invalid number.
+    echo Неверный номер.
     pause
     goto EDIT_PATHS
 )
 if !midx! GTR !count! (
-    echo Invalid number.
+    echo Неверный номер.
     pause
     goto EDIT_PATHS
 )
 set "mname=!name%midx%!"
 set "mtype=!type%midx%!"
-echo Current tool: !mname! [!mtype!]
+echo Текущий инструмент: !mname! [!mtype!]
 echo.
-set /p newpath="New path (leave blank to keep existing): "
+set /p newpath="Новый путь (оставьте пустым, чтобы сохранить текущий): "
 if "%newpath%"=="" set "newpath=!path%midx%!"
 echo.
-echo Current type: !mtype!
-echo Change type? (1=GUI, 2=Console, Enter=keep current)
-set /p newtype="Select (1/2/Enter): "
+echo Текущий тип: !mtype!
+echo Изменить тип? (1=GUI, 2=Консольный, Enter=оставить текущий)
+set /p newtype="Выбор (1/2/Enter): "
 if not defined newtype (
     set "newtype=!mtype!"
 ) else if "%newtype%"=="1" (
@@ -660,7 +660,7 @@ if not defined newtype (
     )
 )
 move /y "%CONFIG%.tmp" "%CONFIG%" >nul
-echo Tool "!mname!" updated: !newtype! ^| !newpath!
+echo Инструмент "!mname!" обновлён: !newtype! ^| !newpath!
 pause
 goto EDIT_PATHS
 
@@ -671,15 +671,15 @@ if "!count!"=="0" (
     pause
     goto EDIT_PATHS
 )
-set /p didx="Tool number to delete: "
+set /p didx="Номер инструмента для удаления: "
 echo !didx!|findstr /r "^[1-9][0-9]*$" >nul
 if errorlevel 1 (
-    echo Invalid number.
+    echo Неверный номер.
     pause
     goto EDIT_PATHS
 )
 if !didx! GTR !count! (
-    echo Invalid number.
+    echo Неверный номер.
     pause
     goto EDIT_PATHS
 )
@@ -692,6 +692,6 @@ set "dname=!name%didx%!"
     )
 )
 move /y "%CONFIG%.tmp" "%CONFIG%" >nul
-echo Tool "!dname!" deleted.
+echo Инструмент "!dname!" удалён.
 pause
 goto EDIT_PATHS
