@@ -670,22 +670,23 @@ class App(tk.Tk):
                         log_files_to_delete.append(row[4])
 
         report_lines = []
-        report_lines.append("=" * 70)
-        report_lines.append(f" ОТЧЁТ О ЗАПУСКАХ ИНСТРУМЕНТОВ ".center(70, "="))
-        report_lines.append("=" * 70)
+        report_lines.append("=" * 90)
+        report_lines.append(f" ОТЧЁТ О ЗАПУСКАХ ИНСТРУМЕНТОВ ".center(90, "="))
+        report_lines.append("=" * 90)
         report_lines.append(f"Дата формирования : {datetime.datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
         report_lines.append(f"Всего запусков    : {total}")
         report_lines.append(f"Успешных          : {ok}")
         report_lines.append(f"С ошибками        : {fail}")
-        report_lines.append("-" * 70)
-        report_lines.append(f"{'Дата':<12} | {'Время':<10} | {'Инструмент':<20} | {'Код':<6} | {'Лог'}")
-        report_lines.append("-" * 70)
+        report_lines.append("-" * 90)
+        
+        report_lines.append(f"{'Дата':<12} | {'Время':<10} | {'Инструмент':<30} | {'Код':<15} | {'Лог'}")
+        report_lines.append("-" * 90)
         
         for r in rows:
             log_name = os.path.basename(r[4]) if len(r) > 4 and r[4] else "Нет"
-            report_lines.append(f"{r[0]:<12} | {r[1]:<10} | {r[2][:19]:<20} | {r[3][:6]:<6} | {log_name}")
+            report_lines.append(f"{r[0]:<12} | {r[1]:<10} | {r[2]:<30} | {r[3]:<15} | {log_name}")
             
-        report_lines.append("=" * 70)
+        report_lines.append("=" * 90)
         report_lines.append("\n[ ЛОГИ ВЫВОДА ОШИБОК И РЕЗУЛЬТАТОВ ]\n")
         
         for r in rows:
