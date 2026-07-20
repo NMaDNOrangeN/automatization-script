@@ -1,3 +1,6 @@
 tools.cfg
 root.cfg
 reports/
+launcher.py
+automatization-script.spec
+build/
